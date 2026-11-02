@@ -25,6 +25,7 @@ The original setup already created the pilot branch and worktree. Fresh clones d
 
 ```sh
 git switch main
+git pull --ff-only origin main
 git switch -c intake/FLEET-002
 python3 scripts/fleet.py new FLEET-002 'Describe the requested result' --accept 'State a verifiable acceptance criterion'
 git add cards/FLEET-002.json
