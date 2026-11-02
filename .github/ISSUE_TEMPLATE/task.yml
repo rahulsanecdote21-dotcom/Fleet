@@ -1,0 +1,21 @@
+name: Fleet task
+description: One bounded outcome for one session
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Requested outcome
+      description: Describe current and expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: State how the outcome can be verified.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and constraints
