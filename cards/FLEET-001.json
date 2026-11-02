@@ -1,0 +1,9 @@
+{
+  "id": "FLEET-001",
+  "title": "Exercise the fleet with an operator quickstart",
+  "acceptance": [
+    "Add docs/quickstart.md with a verified first-card walkthrough.",
+    "Run the fleet tests and obtain independent review of the resulting commit."
+  ],
+  "status": "ready"
+}
