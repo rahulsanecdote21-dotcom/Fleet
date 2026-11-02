@@ -19,6 +19,7 @@ From a clean main checkout, create a local intake branch and choose a previously
 
 ```sh
 git switch main
+git pull --ff-only origin main
 git switch -c intake/FLEET-002
 python3 scripts/fleet.py new FLEET-002 'Document project-specific verification commands' --accept 'Document runnable verification commands and their prerequisites'
 git add cards/FLEET-002.json
@@ -41,6 +42,7 @@ A documentation-only change generally requires one independent reviewer. Changes
 
 ```sh
 python3 scripts/fleet.py review FLEET-002 --author author-session-1 --reviewer human-owner --kind human --verdict pass
+python3 scripts/fleet.py ready FLEET-002 --author author-session-1 --base main
 ```
 
 A fail verdict blocks readiness. The same reviewer can record a later pass after resolving findings. New commits invalidate old records. Update the branch when main has advanced, then repeat validation and review. Readiness also refuses dirty trees and branches with no new commit against main.
