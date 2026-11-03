@@ -82,8 +82,8 @@ def dispatch(root, db, limit, base='main', dry_run=False):
             # Reserve before Git mutation. On interruption keep a visible failed claim;
             # do not silently retry or delete a worktree that might contain user work.
             db.execute("UPDATE jobs SET state='preparing', worktree=? WHERE id=?", (str(target), job['id']))
-            target.parent.mkdir(exist_ok=True)
             try:
+                target.parent.mkdir(exist_ok=True)
                 subprocess.run(['git', '-C', str(root), 'worktree', 'add', '-b', branch,
                                 str(target), sha], check=True, capture_output=True, text=True)
                 handoff = target / '.fleet'
@@ -96,9 +96,12 @@ def dispatch(root, db, limit, base='main', dry_run=False):
                 db.execute("UPDATE jobs SET state='prepared' WHERE id=?", (job['id'],))
                 selected.append(dict(id=job['id'], branch=branch, worktree=str(target), base_sha=sha))
             except (OSError, subprocess.CalledProcessError) as exc:
-                db.execute("UPDATE jobs SET state='failed', reason=? WHERE id=?", (str(exc), job['id']))
+                reason = str(exc)
+                if isinstance(exc, subprocess.CalledProcessError) and exc.stderr:
+                    reason += '\n' + exc.stderr.strip()
+                db.execute("UPDATE jobs SET state='failed', reason=? WHERE id=?", (reason, job['id']))
                 # Preserve earlier successful handoffs and this failure record.
-                selected.append(dict(id=job['id'], error=str(exc)))
+                selected.append(dict(id=job['id'], error=reason))
                 break
     return selected
 
@@ -125,7 +128,10 @@ def main():
     root = Path(git(Path.cwd(), 'rev-parse', '--show-toplevel'))
     with connect(root) as db:
         if args.command == 'enqueue': enqueue(root, db, args.id)
-        elif args.command == 'dispatch': print(json.dumps(dispatch(root, db, args.limit, args.base, args.dry_run), indent=2))
+        elif args.command == 'dispatch':
+            result = dispatch(root, db, args.limit, args.base, args.dry_run)
+            print(json.dumps(result, indent=2))
+            return 1 if any('error' in item for item in result) else 0
         elif args.command == 'release': release(db, args.id, args.reason)
         else:
             print(json.dumps([dict(row) for row in db.execute('SELECT id,state,worktree,reason FROM jobs ORDER BY created,id')], indent=2))
@@ -133,7 +139,7 @@ def main():
 
 if __name__ == '__main__':
     try:
-        main()
+        sys.exit(main())
     except (ValueError, OSError, sqlite3.Error, subprocess.CalledProcessError) as exc:
         print('Blocked:', exc, file=sys.stderr)
         sys.exit(1)
