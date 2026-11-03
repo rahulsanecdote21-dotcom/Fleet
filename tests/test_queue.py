@@ -68,6 +68,28 @@ class QueueTests(unittest.TestCase):
         self.git('branch', 'fleet/TEST-001')
         result = queue.dispatch(self.root, self.db, 2)
         self.assertIn('error', result[0])
+        self.assertIn('already exists', result[0]['error'])
+        self.assertIn('already exists', self.db.execute('SELECT reason FROM jobs').fetchone()[0])
+        self.assertEqual(self.db.execute('SELECT state FROM jobs').fetchone()[0], 'failed')
+
+
+    def test_parent_creation_failure_is_retained(self):
+        queue.enqueue(self.root, self.db, 'TEST-001')
+        (self.root.parent / 'repo-worktrees').write_text('Occupied by a file')
+        result = queue.dispatch(self.root, self.db, 2)
+        self.assertIn('error', result[0])
+        row = self.db.execute('SELECT state,reason FROM jobs').fetchone()
+        self.assertEqual(row['state'], 'failed')
+        self.assertTrue(row['reason'])
+
+    def test_cli_dispatch_failure_returns_nonzero_with_json(self):
+        queue.enqueue(self.root, self.db, 'TEST-001')
+        self.git('branch', 'fleet/TEST-001')
+        result = subprocess.run([sys.executable, str(Path(queue.__file__).resolve()), 'dispatch'],
+                                cwd=self.root, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertIn('already exists', payload[0]['error'])
         self.assertEqual(self.db.execute('SELECT state FROM jobs').fetchone()[0], 'failed')
 
     def test_dirty_tree_and_invalid_limits_rejected(self):
