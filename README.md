@@ -27,11 +27,11 @@ The original setup already created the pilot branch and worktree. Fresh clones d
 ```sh
 git switch main
 git pull --ff-only origin main
-git switch -c intake/FLEET-002
-python3 scripts/fleet.py new FLEET-002 'Describe the requested result' --accept 'State a verifiable acceptance criterion'
-git add cards/FLEET-002.json
-git commit -m 'Add FLEET-002 card'
-python3 scripts/fleet.py start FLEET-002
+git switch -c intake/FLEET-003
+python3 scripts/fleet.py new FLEET-003 'Describe the requested result' --accept 'State a verifiable acceptance criterion'
+git add cards/FLEET-003.json
+git commit -m 'Add FLEET-003 card'
+python3 scripts/fleet.py start FLEET-003
 ```
 
 Commit a card on the local intake branch before starting it. The implementation branch includes that card commit; submit it together with the implementation as one PR. Do not commit directly to protected main. Worktrees start from the current HEAD, so commit setup changes first. Existing dirty files are never copied into a new worktree. Use `git worktree list` to inspect worktrees; remove completed ones with Git only after preserving their commits and confirming they have no needed changes.
