@@ -13,6 +13,7 @@ from fleet import git, valid_id
 
 
 def connect(root):
+    """Open the queue shared by every worktree of this repository."""
     common = Path(git(root, 'rev-parse', '--git-common-dir'))
     if not common.is_absolute():
         common = root / common
@@ -28,6 +29,7 @@ def connect(root):
 
 @contextmanager
 def transaction(db):
+    """Serialize queue mutations and roll back on errors or interruption."""
     db.execute('BEGIN IMMEDIATE')
     try:
         yield
@@ -38,6 +40,7 @@ def transaction(db):
 
 
 def enqueue(root, db, card_id):
+    """Snapshot a committed ready card and reject duplicate queue identities."""
     path = root / 'cards' / (valid_id(card_id) + '.json')
     card = json.loads(path.read_text())
     if card.get('id') != card_id or not str(card.get('title', '')).strip():
@@ -58,6 +61,7 @@ def enqueue(root, db, card_id):
 
 
 def dispatch(root, db, limit, base='main', dry_run=False):
+    """Preflight a batch, reserve available slots, and retain preparation failures."""
     if limit not in (1, 2):
         raise ValueError('Pilot handoff limit must be 1 or 2')
     if git(root, 'status', '--porcelain'):
@@ -107,6 +111,7 @@ def dispatch(root, db, limit, base='main', dry_run=False):
 
 
 def release(db, card_id, reason):
+    """Free a stopped handoff slot without deleting its work or asserting a merge."""
     if not reason.strip():
         raise ValueError('A release reason is required')
     with transaction(db):
@@ -117,6 +122,7 @@ def release(db, card_id, reason):
 
 
 def main():
+    """Run a queue command and report failed preparation with a nonzero exit status."""
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest='command', required=True)
     q = sub.add_parser('enqueue'); q.add_argument('id', type=valid_id)
