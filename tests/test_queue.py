@@ -12,6 +12,7 @@ import fleet_queue as queue
 
 class QueueTests(unittest.TestCase):
     def setUp(self):
+        """Create a disposable Git repository with three ready cards for each scenario."""
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name) / 'repo'
@@ -30,9 +31,11 @@ class QueueTests(unittest.TestCase):
         self.addCleanup(self.db.close)
 
     def git(self, *args):
+        """Run a Git command against the disposable test repository."""
         return subprocess.check_output(['git', '-C', str(self.root), *args], text=True, stderr=subprocess.DEVNULL).strip()
 
     def test_duplicate_claim_and_validation(self):
+        """Reject duplicate claims and cards lacking usable acceptance criteria."""
         queue.enqueue(self.root, self.db, 'TEST-001')
         with self.assertRaises(sqlite3.IntegrityError):
             queue.enqueue(self.root, self.db, 'TEST-001')
@@ -43,6 +46,7 @@ class QueueTests(unittest.TestCase):
             queue.enqueue(self.root, self.db, 'TEST-002')
 
     def test_dry_run_is_non_mutating(self):
+        """Confirm planning creates neither worktrees nor prepared queue entries."""
         queue.enqueue(self.root, self.db, 'TEST-001')
         result = queue.dispatch(self.root, self.db, 2, dry_run=True)
         self.assertEqual(len(result), 1)
@@ -50,6 +54,7 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT state FROM jobs').fetchone()[0], 'queued')
 
     def test_dispatch_bounds_handoffs_and_releases(self):
+        """Verify shared capacity across worktrees and release-driven slot reuse."""
         for i in range(1, 4): queue.enqueue(self.root, self.db, f'TEST-00{i}')
         result = queue.dispatch(self.root, self.db, 2)
         self.assertEqual(len(result), 2)
@@ -64,6 +69,7 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(queue.dispatch(self.root, self.db, 2)[0]['id'], 'TEST-003')
 
     def test_conflicting_branch_preserves_failure(self):
+        """Preserve a branch-conflict failure and its diagnostic for operators."""
         queue.enqueue(self.root, self.db, 'TEST-001')
         self.git('branch', 'fleet/TEST-001')
         result = queue.dispatch(self.root, self.db, 2)
@@ -74,6 +80,7 @@ class QueueTests(unittest.TestCase):
 
 
     def test_parent_creation_failure_is_retained(self):
+        """Retain a failed claim when the worktree parent cannot be created."""
         queue.enqueue(self.root, self.db, 'TEST-001')
         (self.root.parent / 'repo-worktrees').write_text('Occupied by a file')
         result = queue.dispatch(self.root, self.db, 2)
@@ -83,6 +90,7 @@ class QueueTests(unittest.TestCase):
         self.assertTrue(row['reason'])
 
     def test_cli_dispatch_failure_returns_nonzero_with_json(self):
+        """Expose a failed dispatch to subprocess callers while retaining JSON output."""
         queue.enqueue(self.root, self.db, 'TEST-001')
         self.git('branch', 'fleet/TEST-001')
         result = subprocess.run([sys.executable, str(Path(queue.__file__).resolve()), 'dispatch'],
@@ -93,11 +101,13 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT state FROM jobs').fetchone()[0], 'failed')
 
     def test_dirty_tree_and_invalid_limits_rejected(self):
+        """Refuse unsafe dispatch inputs before preparing any worktree."""
         with self.assertRaises(ValueError): queue.dispatch(self.root, self.db, 3)
         (self.root / 'uncommitted').write_text('dirty')
         with self.assertRaises(ValueError): queue.dispatch(self.root, self.db, 2)
 
     def test_batch_preflight_prevents_partial_worktrees(self):
+        """Validate every selected card before mutating Git or queue state."""
         queue.enqueue(self.root, self.db, 'TEST-001')
         queue.enqueue(self.root, self.db, 'TEST-002')
         self.db.execute("UPDATE jobs SET card=? WHERE id='TEST-002'", (json.dumps(dict(id='TEST-002', title='Changed')),))
