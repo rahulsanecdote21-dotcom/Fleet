@@ -46,6 +46,24 @@ class QueueTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             queue.enqueue(self.root, self.db, 'TEST-002')
 
+    def test_cancel_stale_card_unblocks_queue_and_allows_refresh(self):
+        """Remove a stale snapshot, dispatch later work, and requeue the corrected card."""
+        queue.enqueue(self.root, self.db, 'TEST-001')
+        queue.enqueue(self.root, self.db, 'TEST-002')
+        path = self.root / 'cards/TEST-001.json'
+        card = json.loads(path.read_text()); card['title'] = 'Updated task'
+        path.write_text(json.dumps(card))
+        self.git('add', '.'); self.git('commit', '-m', 'Update card')
+        with self.assertRaises(ValueError):
+            queue.dispatch(self.root, self.db, 1)
+        queue.cancel(self.db, 'TEST-001')
+        self.assertEqual(queue.dispatch(self.root, self.db, 1)[0]['id'], 'TEST-002')
+        with self.assertRaises(ValueError):
+            queue.cancel(self.db, 'TEST-002')
+        queue.enqueue(self.root, self.db, 'TEST-001')
+        stored = self.db.execute("SELECT card FROM jobs WHERE id='TEST-001'").fetchone()[0]
+        self.assertEqual(json.loads(stored)['title'], 'Updated task')
+
     def test_dry_run_is_non_mutating(self):
         """Confirm planning creates neither worktrees nor prepared queue entries."""
         queue.enqueue(self.root, self.db, 'TEST-001')
