@@ -103,6 +103,32 @@ class QueueTests(unittest.TestCase):
         self.assertIn('already exists', payload[0]['error'])
         self.assertEqual(self.db.execute('SELECT state FROM jobs').fetchone()[0], 'failed')
 
+
+    def test_changed_head_card_rejected_even_when_base_matches_snapshot(self):
+        """Reject stale queue data after HEAD changes while the selected base stays old."""
+        queue.enqueue(self.root, self.db, 'TEST-001')
+        self.git('branch', 'old-base')
+        path = self.root / 'cards/TEST-001.json'
+        card = json.loads(path.read_text())
+        card['title'] = 'Updated task requirements'
+        path.write_text(json.dumps(card))
+        self.git('add', '.')
+        self.git('commit', '-m', 'Change card after enqueue')
+        with self.assertRaisesRegex(ValueError, 'differs from HEAD'):
+            queue.dispatch(self.root, self.db, 1, base='old-base')
+        self.assertEqual(self.db.execute('SELECT state FROM jobs').fetchone()[0], 'queued')
+        self.assertFalse((self.root.parent / 'repo-worktrees/TEST-001').exists())
+
+    def test_failed_handoff_holds_slot_until_released(self):
+        """Reserve failed handoffs so further preparation cannot exceed the pilot limit."""
+        queue.enqueue(self.root, self.db, 'TEST-001')
+        queue.enqueue(self.root, self.db, 'TEST-002')
+        self.git('branch', 'fleet/TEST-001')
+        self.assertIn('error', queue.dispatch(self.root, self.db, 1)[0])
+        self.assertEqual(queue.dispatch(self.root, self.db, 1), [])
+        queue.release(self.db, 'TEST-001', 'Conflict inspected; no author session exists')
+        self.assertEqual(queue.dispatch(self.root, self.db, 1)[0]['id'], 'TEST-002')
+
     def test_dirty_tree_and_invalid_limits_rejected(self):
         """Refuse unsafe dispatch inputs before preparing any worktree."""
         with self.assertRaises(ValueError): queue.dispatch(self.root, self.db, 3)
