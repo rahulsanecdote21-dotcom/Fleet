@@ -69,11 +69,14 @@ def dispatch(root, db, limit, base='main', dry_run=False):
     sha = git(root, 'rev-parse', '--verify', base + '^{commit}')
     selected = []
     with transaction(db):
-        active = db.execute("SELECT count(*) FROM jobs WHERE state='prepared'").fetchone()[0]
+        active = db.execute("SELECT count(*) FROM jobs WHERE state IN ('prepared', 'failed')").fetchone()[0]
         jobs = db.execute("SELECT * FROM jobs WHERE state='queued' ORDER BY created, id LIMIT ?",
                           (max(0, limit - active),)).fetchall()
         for job in jobs:
             # Preflight the whole batch before creating any worktree. Refuse stale or missing cards on the chosen integration base.
+            head_card = json.loads(git(root, 'show', 'HEAD:cards/' + job['id'] + '.json'))
+            if head_card != json.loads(job['card']):
+                raise ValueError('Queued card differs from HEAD: ' + job['id'])
             base_card = json.loads(git(root, 'show', sha + ':cards/' + job['id'] + '.json'))
             if base_card != json.loads(job['card']):
                 raise ValueError('Queued card differs from base: ' + job['id'])
