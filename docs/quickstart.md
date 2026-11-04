@@ -20,29 +20,29 @@ From a clean main checkout, create a local intake branch and choose a previously
 ```sh
 git switch main
 git pull --ff-only origin main
-git switch -c intake/FLEET-002
-python3 scripts/fleet.py new FLEET-002 'Document project-specific verification commands' --accept 'Document runnable verification commands and their prerequisites'
-git add cards/FLEET-002.json
-git commit -m 'Add FLEET-002 task'
-python3 scripts/fleet.py start FLEET-002
+git switch -c intake/FLEET-003
+python3 scripts/fleet.py new FLEET-003 'Document project-specific verification commands' --accept 'Document runnable verification commands and their prerequisites'
+git add cards/FLEET-003.json
+git commit -m 'Add FLEET-003 task'
+python3 scripts/fleet.py start FLEET-003
 ```
 
 The card commit stays on the local intake branch and is included in the implementation branch created by `start`; submit that implementation branch as one PR containing the card and its change. The checkout must be clean before `start`. Open the printed worktree path in Codex and provide its card with the author prompt from `docs/prompts.md`. Worktrees share Git history but have separate files and branches. Do not run two authors in the same worktree.
 
 ## Commit and review
 
-After the author completes the work and runs checks, it commits on `fleet/FLEET-002`. In that worktree, inspect `git rev-parse HEAD` and have an independent reviewer review that exact revision against `main`. Record only an actual review, using real session identities:
+After the author completes the work and runs checks, it commits on `fleet/FLEET-003`. In that worktree, inspect `git rev-parse HEAD` and have an independent reviewer review that exact revision against `main`. Record only an actual review, using real session identities:
 
 ```sh
-python3 scripts/fleet.py review FLEET-002 --author author-session-1 --reviewer reviewer-session-2 --kind agent --verdict pass
-python3 scripts/fleet.py ready FLEET-002 --author author-session-1 --base main
+python3 scripts/fleet.py review FLEET-003 --author author-session-1 --reviewer reviewer-session-2 --kind agent --verdict pass
+python3 scripts/fleet.py ready FLEET-003 --author author-session-1 --base main
 ```
 
 A documentation-only change generally requires one independent reviewer. Changes to protected paths require a second distinct reviewer, including a human. Record a human review only after a human has performed it:
 
 ```sh
-python3 scripts/fleet.py review FLEET-002 --author author-session-1 --reviewer human-owner --kind human --verdict pass
-python3 scripts/fleet.py ready FLEET-002 --author author-session-1 --base main
+python3 scripts/fleet.py review FLEET-003 --author author-session-1 --reviewer human-owner --kind human --verdict pass
+python3 scripts/fleet.py ready FLEET-003 --author author-session-1 --base main
 ```
 
 A fail verdict blocks readiness. The same reviewer can record a later pass after resolving findings. New commits invalidate old records. Update the branch when main has advanced, then repeat validation and review. Readiness also refuses dirty trees and branches with no new commit against main.

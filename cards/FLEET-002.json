@@ -1,0 +1,10 @@
+{
+  "id": "FLEET-002",
+  "title": "Prepare bounded local task handoffs",
+  "acceptance": [
+    "Serialize queue claims and reject duplicate cards.",
+    "Prepare isolated worktrees without launching or charging agents.",
+    "Bound active handoffs, expose dry-run/status, and retain failures for inspection."
+  ],
+  "status": "in_progress"
+}

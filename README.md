@@ -8,8 +8,9 @@ A working local starter for card → isolated worktree → implementation → in
 - Local SHA-bound review records and a readiness check that rejects stale evidence, self-review, dirty trees, and insufficient protected-path review.
 - Agent instructions, issue and PR templates, CI for this starter, and a staged operating policy.
 - A pilot card for the first end-to-end exercise.
+- Bounded local handoff preparation with a shared SQLite queue; see `docs/dispatch.md`.
 
-The starter is hosted at https://github.com/rahulsanecdote21-dotcom/Fleet. Its main branch requires PRs, the passing test check on an up-to-date branch, resolved conversations, and fresh independent approval of the latest push, including for administrators. An agent dispatcher, paid reviewer integration, nightly schedule, deployment, and automatic revert are not active. Local evidence can be edited by the user and is not a security boundary. CI verifies the starter's tests; it does not yet verify the code of a future product.
+The starter is hosted at https://github.com/rahulsanecdote21-dotcom/Fleet. Its main branch requires PRs, the passing test check on an up-to-date branch, resolved conversations, and fresh independent approval of the latest push, including for administrators. An unattended agent executor, nightly schedule, deployment, and automatic revert are not active. The local queue prepares worktrees and prompts without launching agents. CodeRabbit review is installed for this repository; automatic approval excludes protected paths. Local evidence can be edited by the user and is not a security boundary. CI verifies the starter's tests; it does not yet verify the code of a future product.
 
 ## First run
 
@@ -26,11 +27,11 @@ The original setup already created the pilot branch and worktree. Fresh clones d
 ```sh
 git switch main
 git pull --ff-only origin main
-git switch -c intake/FLEET-002
-python3 scripts/fleet.py new FLEET-002 'Describe the requested result' --accept 'State a verifiable acceptance criterion'
-git add cards/FLEET-002.json
-git commit -m 'Add FLEET-002 card'
-python3 scripts/fleet.py start FLEET-002
+git switch -c intake/FLEET-003
+python3 scripts/fleet.py new FLEET-003 'Describe the requested result' --accept 'State a verifiable acceptance criterion'
+git add cards/FLEET-003.json
+git commit -m 'Add FLEET-003 card'
+python3 scripts/fleet.py start FLEET-003
 ```
 
 Commit a card on the local intake branch before starting it. The implementation branch includes that card commit; submit it together with the implementation as one PR. Do not commit directly to protected main. Worktrees start from the current HEAD, so commit setup changes first. Existing dirty files are never copied into a new worktree. Use `git worktree list` to inspect worktrees; remove completed ones with Git only after preserving their commits and confirming they have no needed changes.

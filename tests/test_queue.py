@@ -1,0 +1,167 @@
+import json
+from pathlib import Path
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
+import fleet_queue as queue
+
+
+class QueueTests(unittest.TestCase):
+    def setUp(self):
+        """Create a disposable Git repository with three ready cards for each scenario."""
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / 'repo'
+        self.root.mkdir()
+        self.git('init', '-b', 'main')
+        self.git('config', 'user.email', 'test@example.invalid')
+        self.git('config', 'user.name', 'Queue Test')
+        (self.root / '.gitignore').write_text('.fleet/\n')
+        (self.root / 'cards').mkdir()
+        for i in range(1, 4):
+            card = dict(id=f'TEST-00{i}', title='Task', acceptance=['Works'], status='ready')
+            (self.root / 'cards' / (card['id'] + '.json')).write_text(json.dumps(card))
+        self.git('add', '.')
+        self.git('commit', '-m', 'Initial cards')
+        self.db = queue.connect(self.root)
+        self.addCleanup(self.db.close)
+
+    def git(self, *args):
+        """Run a Git command against the disposable test repository."""
+        return subprocess.check_output(['git', '-C', str(self.root), *args], text=True, stderr=subprocess.DEVNULL).strip()
+
+    def test_duplicate_claim_and_validation(self):
+        """Reject duplicate claims and cards lacking usable acceptance criteria."""
+        queue.enqueue(self.root, self.db, 'TEST-001')
+        with self.assertRaises(sqlite3.IntegrityError):
+            queue.enqueue(self.root, self.db, 'TEST-001')
+        path = self.root / 'cards/TEST-002.json'
+        card = json.loads(path.read_text()); card['acceptance'] = []
+        path.write_text(json.dumps(card))
+        with self.assertRaises(ValueError):
+            queue.enqueue(self.root, self.db, 'TEST-002')
+
+    def test_cancel_stale_card_unblocks_queue_and_allows_refresh(self):
+        """Remove a stale snapshot, dispatch later work, and requeue the corrected card."""
+        queue.enqueue(self.root, self.db, 'TEST-001')
+        queue.enqueue(self.root, self.db, 'TEST-002')
+        path = self.root / 'cards/TEST-001.json'
+        card = json.loads(path.read_text()); card['title'] = 'Updated task'
+        path.write_text(json.dumps(card))
+        self.git('add', '.'); self.git('commit', '-m', 'Update card')
+        with self.assertRaises(ValueError):
+            queue.dispatch(self.root, self.db, 1)
+        queue.cancel(self.db, 'TEST-001')
+        self.assertEqual(queue.dispatch(self.root, self.db, 1)[0]['id'], 'TEST-002')
+        with self.assertRaises(ValueError):
+            queue.cancel(self.db, 'TEST-002')
+        queue.enqueue(self.root, self.db, 'TEST-001')
+        stored = self.db.execute("SELECT card FROM jobs WHERE id='TEST-001'").fetchone()[0]
+        self.assertEqual(json.loads(stored)['title'], 'Updated task')
+
+    def test_dry_run_is_non_mutating(self):
+        """Confirm planning creates neither worktrees nor prepared queue entries."""
+        queue.enqueue(self.root, self.db, 'TEST-001')
+        result = queue.dispatch(self.root, self.db, 2, dry_run=True)
+        self.assertEqual(len(result), 1)
+        self.assertFalse(Path(result[0]['worktree']).exists())
+        self.assertEqual(self.db.execute('SELECT state FROM jobs').fetchone()[0], 'queued')
+
+    def test_dispatch_bounds_handoffs_and_releases(self):
+        """Verify shared capacity across worktrees and release-driven slot reuse."""
+        for i in range(1, 4): queue.enqueue(self.root, self.db, f'TEST-00{i}')
+        result = queue.dispatch(self.root, self.db, 2)
+        self.assertEqual(len(result), 2)
+        self.assertTrue((Path(result[0]['worktree']) / '.fleet/task.md').exists())
+        self.assertEqual(queue.dispatch(self.root, self.db, 2), [])
+        # A connection from a worktree sees the same reservations.
+        other = queue.connect(Path(result[0]['worktree']))
+        try:
+            self.assertEqual(other.execute("SELECT count(*) FROM jobs WHERE state='prepared'").fetchone()[0], 2)
+        finally: other.close()
+        queue.release(self.db, 'TEST-001', 'Session stopped, work preserved')
+        self.assertEqual(queue.dispatch(self.root, self.db, 2)[0]['id'], 'TEST-003')
+
+    @patch.dict("os.environ", {"LC_ALL": "C"})
+    def test_conflicting_branch_preserves_failure(self):
+        """Preserve a branch-conflict failure and its diagnostic for operators."""
+        queue.enqueue(self.root, self.db, 'TEST-001')
+        self.git('branch', 'fleet/TEST-001')
+        result = queue.dispatch(self.root, self.db, 2)
+        self.assertIn('error', result[0])
+        self.assertIn('already exists', result[0]['error'])
+        self.assertIn('already exists', self.db.execute('SELECT reason FROM jobs').fetchone()[0])
+        self.assertEqual(self.db.execute('SELECT state FROM jobs').fetchone()[0], 'failed')
+
+
+    def test_parent_creation_failure_is_retained(self):
+        """Retain a failed claim when the worktree parent cannot be created."""
+        queue.enqueue(self.root, self.db, 'TEST-001')
+        (self.root.parent / 'repo-worktrees').write_text('Occupied by a file')
+        result = queue.dispatch(self.root, self.db, 2)
+        self.assertIn('error', result[0])
+        row = self.db.execute('SELECT state,reason FROM jobs').fetchone()
+        self.assertEqual(row['state'], 'failed')
+        self.assertTrue(row['reason'])
+
+    @patch.dict("os.environ", {"LC_ALL": "C"})
+    def test_cli_dispatch_failure_returns_nonzero_with_json(self):
+        """Expose a failed dispatch to subprocess callers while retaining JSON output."""
+        queue.enqueue(self.root, self.db, 'TEST-001')
+        self.git('branch', 'fleet/TEST-001')
+        result = subprocess.run([sys.executable, str(Path(queue.__file__).resolve()), 'dispatch'],
+                                cwd=self.root, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertIn('already exists', payload[0]['error'])
+        self.assertEqual(self.db.execute('SELECT state FROM jobs').fetchone()[0], 'failed')
+
+
+    def test_changed_head_card_rejected_even_when_base_matches_snapshot(self):
+        """Reject stale queue data after HEAD changes while the selected base stays old."""
+        queue.enqueue(self.root, self.db, 'TEST-001')
+        self.git('branch', 'old-base')
+        path = self.root / 'cards/TEST-001.json'
+        card = json.loads(path.read_text())
+        card['title'] = 'Updated task requirements'
+        path.write_text(json.dumps(card))
+        self.git('add', '.')
+        self.git('commit', '-m', 'Change card after enqueue')
+        with self.assertRaisesRegex(ValueError, 'differs from HEAD'):
+            queue.dispatch(self.root, self.db, 1, base='old-base')
+        self.assertEqual(self.db.execute('SELECT state FROM jobs').fetchone()[0], 'queued')
+        self.assertFalse((self.root.parent / 'repo-worktrees/TEST-001').exists())
+
+    def test_failed_handoff_holds_slot_until_released(self):
+        """Reserve failed handoffs so further preparation cannot exceed the pilot limit."""
+        queue.enqueue(self.root, self.db, 'TEST-001')
+        queue.enqueue(self.root, self.db, 'TEST-002')
+        self.git('branch', 'fleet/TEST-001')
+        self.assertIn('error', queue.dispatch(self.root, self.db, 1)[0])
+        self.assertEqual(queue.dispatch(self.root, self.db, 1), [])
+        queue.release(self.db, 'TEST-001', 'Conflict inspected; no author session exists')
+        self.assertEqual(queue.dispatch(self.root, self.db, 1)[0]['id'], 'TEST-002')
+
+    def test_dirty_tree_and_invalid_limits_rejected(self):
+        """Refuse unsafe dispatch inputs before preparing any worktree."""
+        with self.assertRaises(ValueError): queue.dispatch(self.root, self.db, 3)
+        (self.root / 'uncommitted').write_text('dirty')
+        with self.assertRaises(ValueError): queue.dispatch(self.root, self.db, 2)
+
+    def test_batch_preflight_prevents_partial_worktrees(self):
+        """Validate every selected card before mutating Git or queue state."""
+        queue.enqueue(self.root, self.db, 'TEST-001')
+        queue.enqueue(self.root, self.db, 'TEST-002')
+        self.db.execute("UPDATE jobs SET card=? WHERE id='TEST-002'", (json.dumps(dict(id='TEST-002', title='Changed')),))
+        self.db.commit()
+        with self.assertRaises(ValueError): queue.dispatch(self.root, self.db, 2)
+        self.assertFalse((self.root.parent / 'repo-worktrees/TEST-001').exists())
+        self.assertEqual(self.db.execute("SELECT count(*) FROM jobs WHERE state='queued'").fetchone()[0], 2)
+
+
+if __name__ == '__main__': unittest.main()
