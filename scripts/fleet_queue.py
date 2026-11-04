@@ -124,6 +124,14 @@ def release(db, card_id, reason):
             raise ValueError('Only prepared or failed handoffs can be released')
 
 
+def cancel(db, card_id):
+    """Remove an unprepared queued snapshot so it can be queued again after correction."""
+    with transaction(db):
+        cursor = db.execute("DELETE FROM jobs WHERE id=? AND state='queued'", (valid_id(card_id),))
+        if cursor.rowcount != 1:
+            raise ValueError('Only queued cards can be cancelled')
+
+
 def main():
     """Run a queue command and report failed preparation with a nonzero exit status."""
     p = argparse.ArgumentParser(description=__doc__)
@@ -132,6 +140,7 @@ def main():
     d = sub.add_parser('dispatch'); d.add_argument('--limit', type=int, default=2)
     d.add_argument('--base', default='main'); d.add_argument('--dry-run', action='store_true')
     sub.add_parser('status')
+    c = sub.add_parser('cancel'); c.add_argument('id', type=valid_id)
     r = sub.add_parser('release'); r.add_argument('id', type=valid_id); r.add_argument('--reason', required=True)
     args = p.parse_args()
     root = Path(git(Path.cwd(), 'rev-parse', '--show-toplevel'))
@@ -142,6 +151,7 @@ def main():
             print(json.dumps(result, indent=2))
             return 1 if any('error' in item for item in result) else 0
         elif args.command == 'release': release(db, args.id, args.reason)
+        elif args.command == 'cancel': cancel(db, args.id)
         else:
             print(json.dumps([dict(row) for row in db.execute('SELECT id,state,worktree,reason FROM jobs ORDER BY created,id')], indent=2))
 
