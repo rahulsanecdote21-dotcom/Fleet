@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import fleet_queue as queue
@@ -68,6 +69,7 @@ class QueueTests(unittest.TestCase):
         queue.release(self.db, 'TEST-001', 'Session stopped, work preserved')
         self.assertEqual(queue.dispatch(self.root, self.db, 2)[0]['id'], 'TEST-003')
 
+    @patch.dict("os.environ", {"LC_ALL": "C"})
     def test_conflicting_branch_preserves_failure(self):
         """Preserve a branch-conflict failure and its diagnostic for operators."""
         queue.enqueue(self.root, self.db, 'TEST-001')
@@ -89,6 +91,7 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(row['state'], 'failed')
         self.assertTrue(row['reason'])
 
+    @patch.dict("os.environ", {"LC_ALL": "C"})
     def test_cli_dispatch_failure_returns_nonzero_with_json(self):
         """Expose a failed dispatch to subprocess callers while retaining JSON output."""
         queue.enqueue(self.root, self.db, 'TEST-001')
