@@ -15,6 +15,8 @@ python3 scripts/fleet_queue.py status
 
 Use the printed worktree path and `.fleet/task.md` in a Codex session. The card must exist unchanged in both HEAD and the chosen base. Dispatch requires a clean checkout. Refresh the integration branch before intake; dispatch does not fetch GitHub or infer whether a local base is current. Do not also run fleet.py start for a queued card.
 
+If a queued card changes or is deleted, cancel its old snapshot with `python3 scripts/fleet_queue.py cancel FLEET-003`. This removes only a queued entry, without touching files or branches. Correct and commit the card, then enqueue it again if needed. Prepared and failed handoffs cannot be cancelled; inspect and release them instead.
+
 When the session is no longer active and its work is preserved:
 
 ```sh
